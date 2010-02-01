@@ -1,0 +1,20 @@
+* Description *
+
+hgformlogin is an extension to Mercurial allowing it to be used with
+repositories protected by a form login. 
+
+This could be the case for example when the repository is served via
+HTTP on an internal server that requires authentication when
+accessed from the outside.
+
+
+* Installation *
+
+Add this to your .hgrc file under the [extensions] section
+hgformlogin=<path/to/hgformlogin/hgformlogin>
+
+* License *
+
+This program is copyright (C) 2010 Cosmin Stejerean, licensed under the terms of
+the GNU Public License version 3 in order to be compatible with the license of
+Mercurial itself. For details on the GPLv3 see the include LICENSE file.

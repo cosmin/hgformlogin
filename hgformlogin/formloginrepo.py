@@ -10,7 +10,34 @@ from mercurial import httprepo
 from mercurial import error
 from mercurial import util
 
-COOKIE=None
+class CachingCookieHolder(dict):
+    def __init__(self, path, prefix):
+        self.path = path #PATH='/tmp'
+        self.prefix = prefix #PREFIX='hg_form_'
+        super(CachingCookieHolder, self).__init__()
+
+    def _get_cookie_file(self, host):
+        return os.path.join(self.path, self.prefix + sha1(host).hexdigest())
+
+    def __getitem__(self, host):
+        if host in self:
+            return dict.__getitem__(self, host)
+        else:
+            cookiefile = self._get_cookie_file(host)
+            if os.path.exists(cookiefile):
+                inp =  open(cookiefile)
+                cookie = inp.read()
+                inp.close()
+                dict.__setitem__(self, host, cookie)
+                return cookie
+        return None
+
+    def __setitem__(self, host, value):
+        cookiefile = self._get_cookie_file(host)
+        out = open(cookiefile, 'w')
+        out.write(value)
+        out.flush()
+        out.close()
 
 def get_the_cookie(url, username=None, password=None):
     req = urlopen(url)
@@ -31,32 +58,23 @@ def get_the_cookie(url, username=None, password=None):
     return cookie.keys()[0] + "=" + cookie.values()[0].value
 
 class formloginhttpsrepo(httprepo.httpsrepository):
+    cookiejar = CachingCookieHolder('/tmp', 'hg_form_')
+
     def do_cmd(self, cmd, **args):
-        global COOKIE
-
         username, host = splituser(urlparse(self.path).netloc)
-        cookiefile = os.path.join('/tmp', 'hgform_' + sha1(host).hexdigest())
-        headers = {}
 
-        if COOKIE is not None:
-            return super(formloginhttpsrepo, self).do_cmd(cmd, headers={'cookie' : COOKIE}, **args)
-        elif os.path.exists(cookiefile):
-            inp =  open(cookiefile)
-            COOKIE = inp.read()
-            inp.close()
-            return super(formloginhttpsrepo, self).do_cmd(cmd, headers={'cookie' : COOKIE}, **args)
+        cookie = self.cookiejar[host]
+        if cookie is not None:
+            return super(formloginhttpsrepo, self).do_cmd(cmd, headers={'cookie' : cookie}, **args)
         else:
             try:
                 return super(formloginhttpsrepo, self).do_cmd(cmd, **args)
             except error.RepoError, e:
                 if 'does not appear to be an hg repository' in str(e):
-                    COOKIE = get_the_cookie(self.path)
-                    print 'Got cookie ' + COOKIE
-                    out = open(cookiefile, 'w')
-                    out.write(COOKIE)
-                    out.flush()
-                    out.close()
-                    return super(formloginhttpsrepo, self).do_cmd(cmd, headers={'cookie' : COOKIE}, **args)
+                    cookie = get_the_cookie(self.path)
+                    print 'Got cookie ' + cookie
+                    self.cookiejar[host] = cookie
+                    return super(formloginhttpsrepo, self).do_cmd(cmd, headers={'cookie' : cookie}, **args)
             else:
                 raise e
 

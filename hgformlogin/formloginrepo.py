@@ -1,7 +1,9 @@
+import os, re
+import logging
+
 from Cookie import SimpleCookie
 from getpass import getpass
 from hashlib import sha1
-import os, re
 from urlparse import urlparse, urljoin
 from urllib import splituser, urlencode
 from urllib2 import urlopen
@@ -9,6 +11,9 @@ from urllib2 import urlopen
 from mercurial import httprepo
 from mercurial import error
 from mercurial import util
+
+# Uncomment the line below if you want to debug
+#logging.basicConfig(level=logging.DEBUG)
 
 class CachingCookieHolder(dict):
     def __init__(self, path, prefix):
@@ -61,25 +66,36 @@ class formloginhttpsrepo(httprepo.httpsrepository):
     cookiejar = CachingCookieHolder('/tmp', 'hg_form_')
 
     def do_cmd(self, cmd, **args):
-        username, host = splituser(urlparse(self.path).netloc)
+        logging.debug('Repo path: %s' % self.path)
+
+        url = urlparse(self.path)
+        username, host = splituser(url.netloc)
 
         cookie = self.cookiejar[host]
         if cookie is not None:
             return super(formloginhttpsrepo, self).do_cmd(cmd, headers={'cookie' : cookie}, **args)
         else:
+            logging.debug('We already have a cookie for host', host)
             try:
                 return super(formloginhttpsrepo, self).do_cmd(cmd, **args)
             except error.RepoError, e:
                 if 'does not appear to be an hg repository' in str(e):
-                    cookie = get_the_cookie(self.path)
-                    print 'Got cookie ' + cookie
+                    logging.debug('Accessing repo on this host for the first time')
+                    # <scheme>://<netloc>/<path>;<params>?<query>#<fragment>
+                    # TODO fixed for now, but do we have a cleaner way to get rid of username:passwd from the URL?
+                    scheme, netloc, path, params, query, fragment = url
+                    path_without_userpasswd = '%s://%s/%s;%s?%s#%s' % (scheme, host, path, params, query, fragment)
+                    cookie = get_the_cookie(path_without_userpasswd)
+                    logging.info('Got cookie', cookie)
                     self.cookiejar[host] = cookie
                     return super(formloginhttpsrepo, self).do_cmd(cmd, headers={'cookie' : cookie}, **args)
             else:
                 raise e
 
 def instance(ui, path, create):
+    logging.debug('Starting hgformlogin...')
     if path.startswith('https:'):
         return formloginhttpsrepo(ui, path)
     else:
         return httprepo.httprepository(ui, path)
+
